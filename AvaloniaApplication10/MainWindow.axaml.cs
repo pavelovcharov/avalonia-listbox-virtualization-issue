@@ -1,10 +1,14 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DynamicData;
+using ReactiveUI;
 
 namespace AvaloniaApplication10;
 
@@ -20,34 +24,46 @@ public partial class MainWindow : Window
 
 public partial class ViewModel : ObservableObject
 {
+    public ViewModel()
+    {
+        _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(400), DispatcherPriority.Background, DoWork);
+        
+        _itemsCache.Connect()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Bind(out _items)
+            .Subscribe();
+    }
+    
     [ObservableProperty]
     private object? selectedItem;
 
     private CancellationTokenSource? cts;
-    public ObservableCollection<object> Items { get; } = new();
+
+    private DispatcherTimer _timer;
+    
+
+    private readonly SourceList<object> _itemsCache = new SourceList<object>();
+
+    private readonly ReadOnlyObservableCollection<object> _items;
+    
+    public ReadOnlyObservableCollection<object> Items => _items;
 
     [RelayCommand]
     public void Start()
     {
-        cts = new CancellationTokenSource();
-        Task.Run(async () => await Work(cts.Token));
+        _timer.Start();
     }
     
     [RelayCommand]
     private void Stop()
     {
-        cts?.Cancel();
+        _timer.Stop();
     }
 
-    private async Task Work(CancellationToken ct)
+    private void DoWork(object? sender, EventArgs e)
     {
-        for (int i = 0; i < 50; i++)
-        {
-            if(ct.IsCancellationRequested)
-                return;
-            Items.Insert(0, Guid.NewGuid());
-            SelectedItem = Items[0];
-            await Task.Delay(400, ct);
-        }
+        var newItem = Guid.NewGuid();
+        _itemsCache.Insert(0, newItem);
+        SelectedItem = newItem;
     }
 }
