@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -13,8 +14,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-
-        ((ViewModel)DataContext!).Start();
     }
 }
 
@@ -25,17 +24,31 @@ public partial class ViewModel : ObservableObject
 
     private CancellationTokenSource? cts;
     public ObservableCollection<object> Items { get; } = new();
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand))]
+    private bool started;
 
-    [RelayCommand]
-    public void Start()
-    {
-        cts = new CancellationTokenSource();
-        Task.Run(async () => await Work(cts.Token));
-    }
+    private bool CanStart() => !Started;
     
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStart))]
+    private void Start()
+    {
+        Started = true;
+        cts = new CancellationTokenSource();
+        Task.Run(async () => await Work(cts.Token)).ContinueWith(async (t) => await AfterTask(), TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    async Task AfterTask()
+    {
+        Started = false;
+        await Task.CompletedTask;
+    }
+
+    private bool CanStop() => started;
+    
+    [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop()
     {
+        Started = false;
         cts?.Cancel();
     }
 
@@ -45,8 +58,11 @@ public partial class ViewModel : ObservableObject
         {
             if(ct.IsCancellationRequested)
                 return;
-            Items.Insert(0, Guid.NewGuid());
-            SelectedItem = Items[0];
+            Dispatcher.UIThread.Post(() =>
+            {
+                Items.Insert(0, Guid.NewGuid());
+                SelectedItem = Items[0];
+            });
             await Task.Delay(400, ct);
         }
     }
